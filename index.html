@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Image Generator</title>
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --surface: #1a1a2e;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --dim: #888;
+    --accent: #7c3aed;
+    --accent-hover: #8b5cf6;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh; display: flex; gap: 0;
+  }
+  #sidebar {
+    width: 360px; min-width: 360px;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;
+    overflow-y: auto; height: 100vh;
+  }
+  #sidebar h1 {
+    font-size: 1.3rem; font-weight: 700;
+    background: linear-gradient(135deg, #a78bfa, #f472b6);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .field { display: flex; flex-direction: column; gap: 0.35rem; }
+  .field label {
+    font-size: 0.8rem; font-weight: 600; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  textarea, select, input {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    padding: 0.6rem 0.75rem; font-size: 0.9rem;
+    font-family: inherit; resize: vertical;
+    transition: border-color 0.15s;
+  }
+  textarea:focus, select:focus, input:focus { outline: none; border-color: var(--accent); }
+  textarea { min-height: 80px; }
+  #generate-btn {
+    background: var(--accent); color: white; border: none;
+    border-radius: var(--radius); padding: 0.75rem;
+    font-size: 0.95rem; font-weight: 600; cursor: pointer;
+    transition: background 0.15s;
+  }
+  #generate-btn:hover { background: var(--accent-hover); }
+  #generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .style-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 0.4rem; max-height: 220px; overflow-y: auto;
+  }
+  .style-btn {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text);
+    padding: 0.35rem 0.5rem; font-size: 0.75rem;
+    cursor: pointer; text-align: left; transition: all 0.15s;
+  }
+  .style-btn:hover { border-color: var(--accent); }
+  .style-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
+  .badge {
+    display: inline-block; background: var(--accent); color: white;
+    font-size: 0.65rem; padding: 0.1rem 0.4rem;
+    border-radius: 4px; margin-left: 0.25rem; vertical-align: middle;
+  }
+  .info-row { display: flex; gap: 0.75rem; }
+  .info-row .field { flex: 1; }
+  #main {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 2rem;
+  }
+  #output-area {
+    width: 100%; max-width: 600px;
+    border-radius: var(--radius); overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border);
+    position: relative; aspect-ratio: 1;
+  }
+  #output-area img {
+    width: 100%; height: 100%; object-fit: contain;
+  }
+  #loading-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: var(--surface); color: var(--dim);
+    transition: opacity 0.3s;
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 0.75rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #error-msg { color: #ef4444; font-size: 0.85rem; margin-top: 0.5rem; text-align: center; }
+  #history {
+    display: flex; gap: 0.5rem; margin-top: 1rem;
+    overflow-x: auto; padding: 0.5rem 0;
+    max-width: 600px; width: 100%;
+  }
+  .history-thumb {
+    width: 72px; height: 72px; border-radius: 6px;
+    object-fit: cover; cursor: pointer;
+    border: 2px solid transparent; flex-shrink: 0;
+  }
+  .history-thumb:hover { border-color: var(--accent); }
+  .history-thumb.active { border-color: var(--accent); }
+  .history-item { position: relative; flex-shrink: 0; }
+  .history-item .delete {
+    position: absolute; top: -4px; right: -4px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #ef4444; color: white; border: none;
+    font-size: 10px; cursor: pointer; display: none;
+    align-items: center; justify-content: center;
+  }
+  .history-item:hover .delete { display: flex; }
+
+  @media (max-width: 768px) {
+    body { flex-direction: column; }
+    #sidebar { width: 100%; min-width: auto; height: auto; }
+    #main { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>&#x1f3a8; AI Image Generator</h1>
+
+  <div class="field">
+    <label>Prompt</label>
+    <textarea id="prompt" placeholder="Describe what you want to generate...">a cyberpunk samurai with neon katana, rainy Tokyo street, cinematic lighting</textarea>
+  </div>
+
+  <div class="field">
+    <label>Negative Prompt</label>
+    <input id="negative" placeholder="Things to avoid (optional)">
+  </div>
+
+  <div class="field">
+    <label>Enhance Style <span id="style-label" class="badge">None</span></label>
+    <div class="style-grid" id="style-grid"></div>
+  </div>
+
+  <div class="info-row">
+    <div class="field">
+      <label>Resolution</label>
+      <select id="resolution">
+        <option value="square">Square</option>
+        <option value="portrait">Portrait</option>
+        <option value="landscape">Landscape</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Seed</label>
+      <input id="seed" type="number" placeholder="Random">
+    </div>
+  </div>
+
+  <button id="generate-btn" onclick="generate()">&#x2728; Generate</button>
+
+  <div style="font-size:0.7rem;color:var(--dim);text-align:center;margin-top:auto;">
+    Powered by Pollinations.ai &middot; Free &amp; no sign-up
+  </div>
+</div>
+
+<div id="main">
+  <div id="output-area">
+    <div id="loading-overlay" style="display:none;">
+      <div class="spinner"></div>
+      <span>Generating...</span>
+      <div id="elapsed" style="font-size:0.75rem;margin-top:0.25rem;"></div>
+    </div>
+    <img id="output-img" src="" alt="Generated image will appear here" style="display:none;">
+    <div id="placeholder-msg" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:0.9rem;">
+      Enter a prompt and hit Generate
+    </div>
+    <div id="error-msg"></div>
+  </div>
+  <div id="history"></div>
+</div>
+
+<script>
+const STYLES = [
+  { name: 'None', prefix: '', suffix: '' },
+  { name: 'Digital Art', prefix: 'digital art of ', suffix: ', trending on ArtStation, sharp focus, highly detailed' },
+  { name: 'Oil Painting', prefix: 'oil painting of ', suffix: ', masterpiece, textured brushstrokes' },
+  { name: 'Anime', prefix: 'anime style ', suffix: ', studio ghibli, vibrant, clean lines' },
+  { name: 'Photorealistic', prefix: 'photorealistic ', suffix: ', 8k, highly detailed, professional lighting' },
+  { name: 'Pixel Art', prefix: 'pixel art of ', suffix: ', 16-bit, retro game, crisp pixels' },
+  { name: 'Fantasy Art', prefix: 'fantasy art of ', suffix: ', ethereal, dramatic lighting, intricate' },
+  { name: 'Watercolor', prefix: 'watercolor painting of ', suffix: ', soft wash, delicate, artistic' },
+  { name: 'Comic Style', prefix: 'comic style ', suffix: ', bold colors, halftone, retro comic book' },
+  { name: '3D Render', prefix: '3D render of ', suffix: ', octane render, cinematic, ray tracing' },
+  { name: 'Cartoon', prefix: 'cartoon style ', suffix: ', vibrant, fun, exaggerated features' },
+  { name: 'Sketch', prefix: 'pencil sketch of ', suffix: ', detailed linework, artistic' },
+  { name: 'Cyberpunk', prefix: 'cyberpunk ', suffix: ', neon lights, futuristic, blade runner aesthetic' },
+  { name: 'Steampunk', prefix: 'steampunk ', suffix: ', brass gears, victorian, industrial revolution' },
+  { name: 'Synthwave', prefix: 'synthwave ', suffix: ', retro 80s, neon grid, outrun aesthetic' },
+  { name: 'Ghibli', prefix: 'studio ghibli style ', suffix: ', hand-drawn, whimsical, lush nature' },
+];
+
+const styleNames = {};
+const styleGrid = document.getElementById('style-grid');
+STYLES.forEach(s => {
+  styleNames[s.name] = s;
+  const btn = document.createElement('button');
+  btn.className = 'style-btn';
+  btn.textContent = s.name;
+  btn.dataset.name = s.name;
+  btn.onclick = () => selectStyle(btn);
+  styleGrid.appendChild(btn);
+});
+document.querySelector('.style-btn').classList.add('active');
+
+function selectStyle(btn) {
+  document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('style-label').textContent = btn.dataset.name;
+}
+
+function getSelectedStyle() {
+  const active = document.querySelector('.style-btn.active');
+  return active ? STYLES.find(s => s.name === active.dataset.name) : STYLES[0];
+}
+
+let history = [];
+
+function resolveRes() {
+  const res = document.getElementById('resolution').value;
+  return { square: [1024,1024], portrait: [768,1024], landscape: [1024,768] }[res];
+}
+
+async function generate() {
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt) return;
+
+  const style = getSelectedStyle();
+  const negative = document.getElementById('negative').value.trim();
+  const seed = document.getElementById('seed').value;
+  const [w, h] = resolveRes();
+
+  const fullPrompt = style.prefix + prompt + style.suffix;
+
+  let url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(fullPrompt) + '?width=' + w + '&height=' + h + '&nologo=true';
+  if (negative) url += '&negative=' + encodeURIComponent(negative);
+  if (seed) url += '&seed=' + seed;
+  url += '&model=flux';
+
+  const overlay = document.getElementById('loading-overlay');
+  const img = document.getElementById('output-img');
+  const placeholder = document.getElementById('placeholder-msg');
+  const error = document.getElementById('error-msg');
+  const btn = document.getElementById('generate-btn');
+
+  overlay.style.display = 'flex';
+  img.style.display = 'none';
+  placeholder.style.display = 'none';
+  error.textContent = '';
+  btn.disabled = true;
+  btn.textContent = '\u23f3 Generating...';
+  document.getElementById('elapsed').textContent = '';
+
+  const startTime = Date.now();
+  const tick = setInterval(() => {
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    document.getElementById('elapsed').textContent = secs + 's';
+  }, 1000);
+
+  const testImg = new Image();
+  testImg.crossOrigin = 'anonymous';
+
+  testImg.onload = () => {
+    clearInterval(tick);
+    img.src = url;
+    img.style.display = 'block';
+    overlay.style.display = 'none';
+    btn.disabled = false;
+    btn.textContent = '\u2728 Generate';
+
+    history.unshift({ url, prompt: fullPrompt, thumb: url + '&width=128&height=128' });
+    if (history.length > 20) history.pop();
+    renderHistory();
+  };
+
+  testImg.onerror = () => {
+    clearInterval(tick);
+    overlay.style.display = 'none';
+    error.textContent = 'Failed to generate. Try a different prompt or try again in a moment.';
+    btn.disabled = false;
+    btn.textContent = '\u{1f504} Retry';
+  };
+
+  testImg.src = url;
+}
+
+function renderHistory() {
+  const container = document.getElementById('history');
+  container.innerHTML = history.map((h, i) =>
+    '<div class="history-item">' +
+    '<button class="delete" onclick="removeHistory(' + i + ')">&times;</button>' +
+    '<img class="history-thumb" src="' + h.thumb + '" title="' + h.prompt.replace(/"/g, '&quot;') + '" onclick="showHistory(' + i + ')">' +
+    '</div>'
+  ).join('');
+}
+
+function showHistory(i) {
+  const item = history[i];
+  const img = document.getElementById('output-img');
+  img.src = item.url;
+  img.style.display = 'block';
+  document.getElementById('placeholder-msg').style.display = 'none';
+}
+
+function removeHistory(i) {
+  history.splice(i, 1);
+  renderHistory();
+}
+
+document.getElementById('prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
+});
+</script>
+</body>
+</html>
